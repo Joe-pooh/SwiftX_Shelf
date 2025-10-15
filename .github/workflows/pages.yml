@@ -23,10 +23,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Precheck
+      - name: Detect site dir
+        id: finddir
         run: |
-          test -f frontend/index.html || (echo "frontend/index.html not found"; exit 1)
-          ls -la frontend
+          if [ -f frontend/index.html ]; then
+            echo "site_dir=frontend" >> $GITHUB_OUTPUT
+          elif [ -f docs/index.html ]; then
+            echo "site_dir=docs" >> $GITHUB_OUTPUT
+          elif [ -f shelfing-mvp/frontend/index.html ]; then
+            echo "site_dir=shelfing-mvp/frontend" >> $GITHUB_OUTPUT
+          elif [ -f shelfing-mvp/docs/index.html ]; then
+            echo "site_dir=shelfing-mvp/docs" >> $GITHUB_OUTPUT
+          else
+            echo "❌ No index.html found in frontend/ or docs/ (including under shelfing-mvp/)."
+            echo "当前目录树："
+            ls -R
+            exit 1
+          fi
+          echo "✅ SITE_DIR=${{ steps.finddir.outputs.site_dir }}"
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -34,7 +48,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: frontend
+          path: ${{ steps.finddir.outputs.site_dir }}
 
       - name: Deploy to GitHub Pages
         id: deployment
