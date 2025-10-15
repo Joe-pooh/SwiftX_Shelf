@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>上下架系统 · Cloud MVP</title>
+  <style>
+    body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin: 16px; }
+    nav { display: flex; gap: 8px; margin-bottom: 16px; }
+    button { padding: 8px 12px; }
+    section { display:none; border:1px solid #ddd; border-radius:8px; padding:12px; }
+    section.active { display:block; }
+    .row { margin:8px 0; display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
+    input, textarea { padding:8px; font-size:16px; }
+    .log { font-family: ui-monospace, SFMono-Regular, Menlo; font-size: 12px; background:#fafafa; border:1px dashed #ddd; padding:8px; height:160px; overflow:auto; }
+    .ok { color:#067d18; font-weight:600; } .err{ color:#b00020; font-weight:600; }
+    .tag { display:inline-block; padding:2px 6px; border-radius:6px; font-size:12px; background:#eef; margin-right:6px; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap:10px; }
+    .card { border:1px solid #ddd; border-radius:8px; padding:10px; }
+    .hidden { display:none !important; }
+    header { display:flex; gap:12px; align-items:center; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📦 上下架系统 · Cloud MVP</h1>
+    <div class="row">
+      <label>后端地址：</label>
+      <input id="backendBase" style="width: 360px">
+      <button onclick="App.saveBase()">保存</button>
+    </div>
+    <div id="authBox" class="row">
+      <span id="userLabel" class="tag hidden"></span>
+      <input id="loginUser" placeholder="用户名" autocomplete="username">
+      <input id="loginPass" placeholder="密码" type="password" autocomplete="current-password">
+      <button onclick="Auth.login()">登录</button>
+      <button onclick="Auth.logout()">退出</button>
+    </div>
+  </header>
+
+  <nav id="navbar" class="hidden">
+    <button onclick="App.show('putaway')">上架</button>
+    <button onclick="App.show('pick')">下架/拣选</button>
+    <button onclick="App.show('dashboard')">看板/导出</button>
+    <button onclick="App.show('printbins')">库位码打印</button>
+  </nav>
+
+  <section id="putaway">
+    <h2>上架（扫库位 → 连续扫包裹）</h2>
+    <div class="row">
+      <label>库位：</label><input id="pwBin" placeholder="例如 MIA-A1-B03-L2-P04">
+      <button onclick="Putaway.createBin()">创建库位</button>
+    </div>
+    <div class="row">
+      <label>包裹：</label><input id="pwTrack" placeholder="先聚焦此框，用扫描枪连续扫">
+      <button onclick="Putaway.putaway()">上架</button>
+    </div>
+    <div class="log" id="pwLog"></div>
+  </section>
+
+  <section id="pick">
+    <h2>下架/拣选（粘贴任务 → 扫描包裹）</h2>
+    <div class="row">
+      <textarea id="pickList" rows="4" style="width:520px" placeholder="tracking 逐行粘贴"></textarea>
+      <button onclick="Pick.loadTargets()">载入任务</button>
+    </div>
+    <div class="row">
+      <label>扫描：</label><input id="pkTrack" placeholder="扫描枪对准此框连续扫">
+      <button onclick="Pick.pick()">下架</button>
+      <span id="pkCount" class="tag">0/0</span>
+    </div>
+    <div class="log" id="pkLog"></div>
+  </section>
+
+  <section id="dashboard">
+    <h2>看板 / 导出</h2>
+    <div class="row">
+      <button onclick="Dashboard.exportLogs()">导出扫描日志 CSV</button>
+    </div>
+    <div id="dbStats"></div>
+  </section>
+
+  <section id="printbins">
+    <h2>库位码打印</h2>
+    <div class="row">
+      <textarea id="binsInput" rows="6" style="width:520px" placeholder="一行一个库位号"></textarea>
+      <button onclick="PrintBins.render()">生成</button>
+    </div>
+    <div class="row"><button onclick="window.print()">打印</button></div>
+    <div id="print-area" class="grid"></div>
+  </section>
+
+  <script src="./js/common.js"></script>
+  <script src="./js/auth.js"></script>
+  <script src="./js/putaway.js"></script>
+  <script src="./js/pick.js"></script>
+  <script src="./js/dashboard.js"></script>
+  <script src="./js/printbins.js"></script>
+  <script>App.init();</script>
+</body>
+</html>
