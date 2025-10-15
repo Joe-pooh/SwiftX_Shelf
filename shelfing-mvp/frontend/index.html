@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>上下架系统 · MVP</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 16px; }
+    nav { display: flex; gap: 8px; margin-bottom: 16px; }
+    button { padding: 8px 12px; }
+    section { display: none; border: 1px solid #ddd; border-radius: 8px; padding: 12px; }
+    section.active { display: block; }
+    .row { margin: 8px 0; display: flex; gap: 8px; align-items: center; }
+    input, textarea, select { padding: 8px; font-size: 16px; }
+    .log { font-family: ui-monospace, SFMono-Regular, Menlo; font-size: 12px; background: #fafafa; border: 1px dashed #ddd; padding: 8px; height: 160px; overflow: auto; }
+    .ok { color: #067d18; font-weight: 600; }
+    .err { color: #b00020; font-weight: 600; }
+    .tag { display:inline-block; padding: 2px 6px; border-radius: 6px; font-size: 12px; background: #eef; margin-right: 6px; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap:10px; }
+    .card { border:1px solid #ddd; border-radius:8px; padding:10px;}
+    @media print {
+      nav, .no-print { display: none !important; }
+      #print-area .card { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <h1>📦 上下架系统 · MVP</h1>
+  <div class="row">
+    <label>后端地址：</label>
+    <input id="backendBase" style="width: 360px" value="http://localhost:8000">
+    <button class="no-print" onclick="saveBase()">保存</button>
+  </div>
+  <nav class="no-print">
+    <button onclick="show('putaway')">上架</button>
+    <button onclick="show('pick')">下架/拣选</button>
+    <button onclick="show('dashboard')">看板/导出</button>
+    <button onclick="show('printbins')">库位码打印</button>
+  </nav>
+
+  <!-- Putaway -->
+  <section id="putaway" class="active">
+    <h2>上架（扫库位 → 连续扫包裹）</h2>
+    <div class="row">
+      <label>库位：</label><input id="pwBin" placeholder="例如 MIA-A1-B03-L2-P04">
+      <button onclick="createBin()">创建库位</button>
+    </div>
+    <div class="row">
+      <label>包裹：</label><input id="pwTrack" placeholder="先聚焦此框，用扫描枪连续扫">
+      <button onclick="doPutaway()">上架</button>
+    </div>
+    <div class="log" id="pwLog"></div>
+  </section>
+
+  <!-- Pick -->
+  <section id="pick">
+    <h2>下架/拣选（粘贴任务 → 扫描包裹）</h2>
+    <div class="row">
+      <textarea id="pickList" rows="4" style="width: 520px" placeholder="将拣选任务的tracking逐行粘贴在此"></textarea>
+      <button onclick="loadPickTargets()">载入任务</button>
+    </div>
+    <div class="row">
+      <label>扫描：</label><input id="pkTrack" placeholder="扫描枪对准此框连续扫">
+      <button onclick="doPick()">下架</button>
+      <span id="pkCount" class="tag">0/0</span>
+    </div>
+    <div class="log" id="pkLog"></div>
+  </section>
+
+  <!-- Dashboard -->
+  <section id="dashboard">
+    <h2>看板 / 导出</h2>
+    <div class="row">
+      <button onclick="exportLogs()">导出扫描日志 CSV</button>
+    </div>
+    <div id="dbStats"></div>
+  </section>
+
+  <!-- Print Bins -->
+  <section id="printbins">
+    <h2>库位码打印</h2>
+    <div class="row">
+      <textarea id="binsInput" rows="6" style="width: 520px" placeholder="一行一个库位号，例如：
+MIA-A1-B03-L2-P01
+MIA-A1-B03-L2-P02"></textarea>
+      <button onclick="renderBinQRCards()">生成</button>
+    </div>
+    <div class="no-print row"><button onclick="window.print()">打印</button></div>
+    <div id="print-area" class="grid"></div>
+  </section>
+
+  <script>
+    // --- utils ---
+    let BACKEND_BASE = localStorage.getItem('BACKEND_BASE') || document.getElementById('backendBase').value;
+    document.getElementById('backendBase').value = BACKEND_BASE;
+
+    function saveBase(){ BACKEND_BASE = document.getElementById('backendBase').value.trim(); localStorage.setItem('BACKEND_BASE', BACKEND_BASE); beep(600, 80); }
+
+    function show(id){
+      document.querySelectorAll('section').forEach(s => s.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+    }
+
+    function log(divId, msg, ok=true){
+      const el = document.getElementById(divId);
+      const p = document.createElement('div');
+      p.innerHTML = (ok? '<span class=ok>✔</span>':'<span class=err>✖</span>') + ' ' + msg;
+      el.prepend(p);
+    }
+
+    // simple beeps (success/high, error/low)
+    let audioCtx;
+    function beep(freq=440, dur=100){
+      try{
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.connect(g); g.connect(audioCtx.destination);
+        o.frequency.value = freq;
+        o.start();
+        setTimeout(()=>{ o.stop(); }, dur);
+      }catch(e){ /* ignore */ }
+    }
+
+    // --- Putaway ---
+    const pwBin = document.getElementById('pwBin');
+    const pwTrack = document.getElementById('pwTrack');
+    pwTrack.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ doPutaway(); } });
+
+    async function createBin(){
+      const code = pwBin.value.trim();
+      if(!code){ alert('请输入库位'); return; }
+      const r = await fetch(BACKEND_BASE + '/bins', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({code}) });
+      if(r.ok){ log('pwLog', '创建库位：'+code); beep(660,120); } else { const t=await r.text(); log('pwLog', '创建库位失败 '+t, false); beep(220,200); }
+    }
+
+    async function doPutaway(){
+      const bin_code = pwBin.value.trim();
+      const tracking = pwTrack.value.trim();
+      if(!bin_code || !tracking){ beep(220,200); return; }
+      const r = await fetch(BACKEND_BASE + '/putaway', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({bin_code, tracking}) });
+      if(r.ok){
+        const data = await r.json();
+        log('pwLog', `上架成功：${data.tracking} → ${data.bin_code}`); beep(800, 120);
+        pwTrack.value='';
+      }else{
+        const t = await r.text(); log('pwLog', '上架失败：'+t, false); beep(220, 200);
+      }
+    }
+
+    // --- Pick ---
+    const pkLog = document.getElementById('pkLog');
+    const pkTrack = document.getElementById('pkTrack');
+    const pkCount = document.getElementById('pkCount');
+    let targetSet = new Set();
+    let pickedSet = new Set();
+
+    pkTrack.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ doPick(); } });
+
+    function loadPickTargets(){
+      const lines = document.getElementById('pickList').value.split('\n').map(s=>s.trim().toUpperCase()).filter(Boolean);
+      targetSet = new Set(lines);
+      pickedSet = new Set();
+      pkCount.textContent = `0/${targetSet.size}`;
+      pkLog.innerHTML='';
+      log('pkLog', '已载入目标：'+lines.length+' 条');
+      beep(700, 120);
+    }
+
+    async function doPick(){
+      const t = pkTrack.value.trim().toUpperCase();
+      if(!t){ return; }
+      if(targetSet.size === 0){
+        log('pkLog', '请先载入拣选任务', false); beep(220,200); pkTrack.value=''; return;
+      }
+      if(!targetSet.has(t)){
+        log('pkLog', '非本次目标：'+t, false); beep(240, 250);
+        pkTrack.value=''; return;
+      }
+      const r = await fetch(BACKEND_BASE + '/pick', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({tracking:t}) });
+      if(r.ok){
+        pickedSet.add(t);
+        log('pkLog', '命中并下架：'+t, true); beep(880, 120);
+      }else{
+        const tx = await r.text();
+        log('pkLog', '下架失败：'+tx, false); beep(220, 220);
+      }
+      pkTrack.value='';
+      pkCount.textContent = `${pickedSet.size}/${targetSet.size}`;
+    }
+
+    // --- Export ---
+    async function exportLogs(){
+      const r = await fetch(BACKEND_BASE + '/export/scan_logs');
+      if(!r.ok){ alert('导出失败'); return; }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'scan_logs.csv'; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // --- Print Bins ---
+    function renderBinQRCards(){
+      const area = document.getElementById('print-area');
+      area.innerHTML = '';
+      const lines = document.getElementById('binsInput').value.split('\n').map(s=>s.trim()).filter(Boolean);
+      for(const code of lines){
+        const div = document.createElement('div');
+        div.className='card';
+        const title = document.createElement('div');
+        title.style.fontWeight = '700';
+        title.style.marginBottom = '8px';
+        title.textContent = code;
+        const canvas = document.createElement('canvas');
+        canvas.width = 256; canvas.height = 256;
+        div.appendChild(title);
+        div.appendChild(canvas);
+        area.appendChild(div);
+        // QR via canvas
+        drawQRToCanvas(canvas, code);
+      }
+    }
+
+    // Tiny QR encoder via URL API (fallback to canvas text if offline). For best results, swap with a full QR lib later.
+    function drawQRToCanvas(canvas, text){
+      // Simple approach: draw a QR through a tiny in-page encoder (placeholder).
+      // For MVP without external deps, render a pseudo-QR (not scannable). In practice, replace with a QR lib.
+      // --- Replace with a real lib later. ---
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = '#000';
+      ctx.font = '16px monospace';
+      ctx.fillText('QR:', 10, 24);
+      ctx.fillText(text, 10, 48);
+      // NOTE: For production, include a QR library or render QR PNG from backend.
+    }
+  </script>
+</body>
+</html>
