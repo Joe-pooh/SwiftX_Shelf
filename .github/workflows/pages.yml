@@ -22,12 +22,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Precheck
+        run: |
+          test -f frontend/index.html || (echo "frontend/index.html not found"; exit 1)
+          ls -la frontend
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: frontend   # 这里指定发布 frontend 目录
+          path: frontend
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
